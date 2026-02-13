@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSettingsStore } from "@/stores/settingsStore";
 
 export function useCamera() {
@@ -6,17 +6,29 @@ export function useCamera() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const cameraFacing = useSettingsStore((state) => state.cameraFacing);
 
-  const startCamera = async () => {
+  const stopCamera = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+
+    setStream(null);
+  }, []);
+
+  const startCamera = useCallback(async () => {
     setIsLoading(true);
     setError(null);
 
     try {
       // 既存のストリームがあれば停止
-      if (stream) {
-        stream.getTracks().forEach((track) => track.stop());
-      }
+      stopCamera();
 
       const constraints: MediaStreamConstraints = {
         video: {
@@ -30,6 +42,7 @@ export function useCamera() {
       const mediaStream = await navigator.mediaDevices.getUserMedia(
         constraints
       );
+      streamRef.current = mediaStream;
       setStream(mediaStream);
 
       // videoRef に stream を設定
@@ -44,22 +57,20 @@ export function useCamera() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [cameraFacing, stopCamera]);
 
-  const retryCamera = () => {
-    startCamera();
-  };
+  const retryCamera = useCallback(() => {
+    void startCamera();
+  }, [startCamera]);
 
   useEffect(() => {
-    startCamera();
+    void startCamera();
 
     // cleanup: すべてのトラックを停止
     return () => {
-      if (stream) {
-        stream.getTracks().forEach((track) => track.stop());
-      }
+      stopCamera();
     };
-  }, [cameraFacing]); // cameraFacing が変わったら再起動
+  }, [startCamera, stopCamera]); // cameraFacing が変わったら再起動
 
   return { videoRef, stream, isLoading, error, retryCamera };
 }

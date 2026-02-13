@@ -19,14 +19,14 @@ export function usePoseDetection(
 
   const setIsDetecting = useExerciseStore((state) => state.setIsDetecting);
 
-  const detectionLoop = async () => {
+  const detectionLoop = async (now: number): Promise<void> => {
     if (!isDetectingRef.current) return;
-
-    const now = Date.now();
 
     // ~30fps throttle (33ms)
     if (now - lastDetectionTime.current < 33) {
-      animationFrameId.current = requestAnimationFrame(detectionLoop);
+      animationFrameId.current = requestAnimationFrame((timestamp) => {
+        void detectionLoop(timestamp);
+      });
       return;
     }
 
@@ -39,6 +39,10 @@ export function usePoseDetection(
 
         // FPS calculation
         detectionCountRef.current++;
+        if (lastFpsUpdateRef.current === 0) {
+          lastFpsUpdateRef.current = now;
+        }
+
         if (now - lastFpsUpdateRef.current >= 1000) {
           setFps(detectionCountRef.current);
           detectionCountRef.current = 0;
@@ -52,7 +56,9 @@ export function usePoseDetection(
       }
     }
 
-    animationFrameId.current = requestAnimationFrame(detectionLoop);
+    animationFrameId.current = requestAnimationFrame((timestamp) => {
+      void detectionLoop(timestamp);
+    });
   };
 
   const startDetection = async () => {
@@ -65,10 +71,12 @@ export function usePoseDetection(
     try {
       await initDetector();
       isDetectingRef.current = true;
-      lastFpsUpdateRef.current = Date.now();
+      lastFpsUpdateRef.current = 0;
       detectionCountRef.current = 0;
       setIsModelLoading(false);
-      detectionLoop();
+      animationFrameId.current = requestAnimationFrame((timestamp) => {
+        void detectionLoop(timestamp);
+      });
     } catch (err) {
       const errorMessage =
         err instanceof Error ? err.message : "Model initialization failed";
@@ -101,9 +109,17 @@ export function usePoseDetection(
   useEffect(() => {
     // Cleanup on unmount
     return () => {
-      stopDetection();
+      isDetectingRef.current = false;
+      setIsDetecting(false);
+
+      if (animationFrameId.current !== null) {
+        cancelAnimationFrame(animationFrameId.current);
+        animationFrameId.current = null;
+      }
+
+      void disposeDetector();
     };
-  }, []);
+  }, [setIsDetecting]);
 
   return {
     keypoints,

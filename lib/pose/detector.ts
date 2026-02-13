@@ -1,7 +1,11 @@
 import type { Keypoint } from "@/types";
+import type {
+  Keypoint as PoseDetectionKeypoint,
+  PoseDetector,
+} from "@tensorflow-models/pose-detection";
 
 // Singleton detector instance
-let detector: any = null;
+let detector: PoseDetector | null = null;
 
 /**
  * Initialize MoveNet SINGLEPOSE_THUNDER detector
@@ -63,19 +67,26 @@ export async function detectPose(
     if (!detector) {
       await initDetector();
     }
+    const activeDetector = detector;
+    if (!activeDetector) {
+      return [];
+    }
 
     // Estimate poses
-    const poses = await detector.estimatePoses(video);
+    const poses = await activeDetector.estimatePoses(video);
 
     // Convert to our Keypoint format (normalize coordinates)
     if (poses.length === 0 || !poses[0]?.keypoints) {
       return [];
     }
 
-    const keypoints: Keypoint[] = poses[0].keypoints.map((kp: any) => ({
+    const safeVideoWidth = Math.max(video.videoWidth, 1);
+    const safeVideoHeight = Math.max(video.videoHeight, 1);
+
+    const keypoints: Keypoint[] = poses[0].keypoints.map((kp: PoseDetectionKeypoint) => ({
       name: kp.name || "",
-      x: kp.x / video.videoWidth, // Normalize to 0-1
-      y: kp.y / video.videoHeight, // Normalize to 0-1
+      x: kp.x / safeVideoWidth, // Normalize to 0-1
+      y: kp.y / safeVideoHeight, // Normalize to 0-1
       score: kp.score ?? 0,
     }));
 
@@ -92,7 +103,7 @@ export async function detectPose(
 export async function disposeDetector(): Promise<void> {
   if (detector) {
     try {
-      await detector.dispose();
+      detector.dispose();
       detector = null;
       console.log("Detector disposed");
     } catch (error) {
